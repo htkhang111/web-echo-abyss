@@ -1,102 +1,84 @@
-// import { defineStore } from 'pinia';
-// import { ref, computed } from 'vue';
-// import type { Hero } from '../types';
-
-// export const useHeroStore = defineStore('hero', () => {
-//   // 1. State: Chứa danh sách tướng
-//   const heroes = ref<Hero[]>([
-//     // Dữ liệu giả để test giao diện (Mock Data)
-//     {
-//       id: '1', name: 'Tiêu Phong', rarity: 'Legendary', element: 'Fire',
-//       level: 50, stars: 5, atk: 2500, hp: 10000, is_locked: true, is_equipped: true,
-//       image_url: 'https://placehold.co/400x600/orange/white?text=Tieu+Phong'
-//     },
-//     {
-//       id: '2', name: 'Hư Trúc', rarity: 'Epic', element: 'Wood',
-//       level: 40, stars: 3, atk: 1800, hp: 8000, is_locked: false, is_equipped: false,
-//       image_url: 'https://placehold.co/400x600/purple/white?text=Hu+Truc'
-//     },
-//     {
-//       id: '3', name: 'Đoàn Dự', rarity: 'Rare', element: 'Water',
-//       level: 30, stars: 2, atk: 1200, hp: 5000, is_locked: false, is_equipped: false,
-//       image_url: 'https://placehold.co/400x600/blue/white?text=Doan+Du'
-//     },
-//     {
-//       id: '4', name: 'Lính Cỏ', rarity: 'Common', element: 'Earth',
-//       level: 1, stars: 1, atk: 100, hp: 500, is_locked: false, is_equipped: false,
-//       image_url: 'https://placehold.co/400x600/gray/white?text=Linh+Co'
-//     },
-//     // Ca có thể copy thêm nhiều con nữa để test scroll
-//   ]);
-
-//   const filterRarity = ref<string>('All');
-
-//   // 2. Getter: Lọc tướng (Sau này dùng cho bộ lọc)
-//   const filteredHeroes = computed(() => {
-//     if (filterRarity.value === 'All') return heroes.value;
-//     return heroes.value.filter(h => h.rarity === filterRarity.value);
-//   });
-
-//   // 3. Action: Các hàm xử lý
-//   function setFilter(rarity: string) {
-//     filterRarity.value = rarity;
-//   }
-
-//   return { heroes, filteredHeroes, filterRarity, setFilter };
-// });
-
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { supabase } from '../lib/supabase';
+import { useAuthStore } from './authStore';
 import type { Hero } from '../types';
 
 export const useHeroStore = defineStore('hero', () => {
-  // 1. State: Chứa danh sách tướng
-  const heroes = ref<Hero[]>([
-    // Dữ liệu giả để test giao diện (Mock Data)
-    {
-      id: '1', name: 'Tiêu Phong', rarity: 'Legendary', element: 'Fire',
-      level: 50, stars: 5, atk: 2500, hp: 10000, is_locked: true, is_equipped: true,
-      image_url: 'https://placehold.co/400x600/orange/white?text=Tieu+Phong'
-    },
-    {
-      id: '2', name: 'Hư Trúc', rarity: 'Epic', element: 'Wood',
-      level: 40, stars: 3, atk: 1800, hp: 8000, is_locked: false, is_equipped: false,
-      image_url: 'https://placehold.co/400x600/purple/white?text=Hu+Truc'
-    },
-    {
-      id: '3', name: 'Đoàn Dự', rarity: 'Rare', element: 'Water',
-      level: 30, stars: 2, atk: 1200, hp: 5000, is_locked: false, is_equipped: false,
-      image_url: 'https://placehold.co/400x600/blue/white?text=Doan+Du'
-    },
-    {
-      id: '4', name: 'Lính Cỏ', rarity: 'Common', element: 'Earth',
-      level: 1, stars: 1, atk: 100, hp: 500, is_locked: false, is_equipped: false,
-      image_url: 'https://placehold.co/400x600/gray/white?text=Linh+Co'
-    },
-    // Ca có thể copy thêm nhiều con nữa để test scroll
-  ]);
-
+  const heroes = ref<Hero[]>([]); // Data thật rỗng ban đầu
+  const loading = ref(false);
   const filterRarity = ref<string>('All');
-  const selectedHero = ref<Hero | null>(null); // <--- MỚI: Tướng đang được chọn
+  const selectedHero = ref<Hero | null>(null);
+  
+  const authStore = useAuthStore();
 
-  // 2. Getters
+  // 1. Hàm lấy dữ liệu từ Supabase
+  async function fetchUserHeroes() {
+    if (!authStore.user) return;
+    loading.value = true;
+
+    // Kỹ thuật JOIN bảng trong Supabase: 
+    // select(*, hero_templates(*)) nghĩa là lấy thông tin user_heroes kèm theo thông tin gốc từ hero_templates
+    const { data, error } = await supabase
+      .from('user_heroes')
+      .select('*, hero_templates(*)');
+
+    if (error) {
+      console.error('Lỗi lấy tướng:', error);
+    } else if (data) {
+      // Map dữ liệu từ Database sang format Frontend cần
+      heroes.value = data.map((item: any) => ({
+        id: item.id,
+        // Lấy thông tin từ bảng template
+        name: item.hero_templates.name,
+        rarity: item.hero_templates.rarity,
+        element: item.hero_templates.element,
+        image_url: item.hero_templates.image_url || 'https://placehold.co/400x600/black/white?text=No+Image',
+        // Lấy thông tin level của user
+        level: item.level,
+        stars: item.stars,
+        is_locked: item.is_locked,
+        is_equipped: item.is_equipped,
+        // Tính toán chỉ số: Base + (Level * Growth) - Tạm tính đơn giản
+        atk: item.hero_templates.base_atk + (item.level * 10),
+        hp: item.hero_templates.base_hp + (item.level * 50),
+      }));
+    }
+    loading.value = false;
+  }
+
+  // 2. Hàm Gacha (Triệu hồi tướng mới cho người mới)
+  async function summonHero() {
+    if (!authStore.user) return;
+    
+    // Lấy random 1 con template (Tạm thời lấy ID 1-4 ca đã tạo trong SQL)
+    const randomTemplateId = Math.floor(Math.random() * 4) + 1; 
+
+    const { error } = await supabase
+      .from('user_heroes')
+      .insert({
+        user_id: authStore.user.id,
+        template_id: randomTemplateId, // Random tạm
+        level: 1
+      });
+
+    if (!error) {
+      await fetchUserHeroes(); // Refresh lại list sau khi gacha
+    }
+  }
+
+  // Getters & Helpers (Giữ nguyên logic cũ)
   const filteredHeroes = computed(() => {
     if (filterRarity.value === 'All') return heroes.value;
     return heroes.value.filter(h => h.rarity === filterRarity.value);
   });
 
-  // 3. Actions
-  function setFilter(rarity: string) {
-    filterRarity.value = rarity;
-  }
+  function setFilter(rarity: string) { filterRarity.value = rarity; }
+  function selectHero(hero: Hero) { selectedHero.value = hero; }
+  function clearSelection() { selectedHero.value = null; }
 
-  function selectHero(hero: Hero) { // <--- MỚI
-    selectedHero.value = hero;
-  }
-
-  function clearSelection() { // <--- MỚI
-    selectedHero.value = null;
-  }
-
-  return { heroes, filteredHeroes, filterRarity, selectedHero, setFilter, selectHero, clearSelection };
+  return { 
+    heroes, loading, filteredHeroes, filterRarity, selectedHero, 
+    setFilter, selectHero, clearSelection, fetchUserHeroes, summonHero 
+  };
 });
