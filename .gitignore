@@ -1,0 +1,20 @@
+# Bỏ qua thư viện nặng
+node_modules/
+**/node_modules/
+
+# Bỏ qua file build
+dist/
+**/dist/
+build/
+
+# QUAN TRỌNG: Bỏ qua file chứa Key bảo mật
+.env
+.env.local
+.env.*.local
+
+# File hệ thống rác
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
